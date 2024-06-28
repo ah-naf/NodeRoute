@@ -2,6 +2,7 @@ const http = require("http");
 const fs = require("fs").promises;
 const fsStream = require("fs");
 const path = require("path");
+const url = require("url");
 
 // Define mime types for different file extensions
 const mimeTypes = {
@@ -144,6 +145,38 @@ class Route {
     }
   }
 
+  // Parse URL parameters based on the route pattern
+  extractParams(routePattern, actualUrl) {
+    const paramNames = [];
+    const exists = new Set();
+    const routeSegments = routePattern.split("/");
+    const urlSegments = actualUrl.split("/");
+
+    if (routeSegments.length !== urlSegments.length) {
+      return null;
+    }
+
+    const params = {};
+    for (let i = 0; i < routeSegments.length; i++) {
+      if (exists.has(routeSegments[i])) {
+        throw new Error(
+          "Found duplicate parameter in URL. Parameter name should be unique"
+        );
+      }
+      const routeSegment = routeSegments[i];
+      const urlSegment = urlSegments[i];
+      exists.add(routeSegment);
+      if (routeSegment.startsWith(":")) {
+        const paramName = routeSegment.slice(1);
+        paramNames.push(paramName);
+        params[paramName] = urlSegment;
+      } else if (routeSegment !== urlSegment) {
+        return null; // If a static segment doesn't match, return null
+      }
+    }
+    return params;
+  }
+
   // Handle incoming requests for this route
   async handleRequest(req, res) {
     const urlPath = req.url === "/" ? "/index.html" : req.url;
@@ -156,6 +189,10 @@ class Route {
       const handler = this.handlers[method];
 
       if (handler) {
+        req.params = this.extractParams(
+          this.path,
+          new URL(req.url, `http://${req.headers.host}`).pathname
+        );
         handler(req, res);
       } else {
         serve404(res);
@@ -248,7 +285,10 @@ class MyHttp {
           await staticRoute.serveStaticFile(filePath, res);
         } else {
           // Fallback to dynamic routes
-          const route = this.routes.find((route) => req.url === route.path);
+          const route = this.routes.find((route) => {
+            return route.extractParams(route.path, url.parse(req.url).pathname);
+          });
+
           if (route) {
             await route.handleRequest(req, res);
           } else {
@@ -279,10 +319,23 @@ class MyHttp {
 // Example usage
 const server = new MyHttp();
 
-const homeUrl = "/";
-server.Route(homeUrl).sendStatic(path.join(__dirname, "public"));
+server.Route("/post/lol/custom").get((req, res) => {
+  res.status(200).json({ message: `Normal Route` });
+});
 
-const someRoute = server.Route("/another").sendStatic(path.join(__dirname, "public1"));
+const PostRoute = server.Route("/post/:id/custom");
+PostRoute.get((req, res) => {
+  const id = req.params.id;
+  res.status(200).json({ message: `Successfully fetched post with id ${id}` });
+})
+  .put((req, res) => {
+    const id = req.params.id;
+    res.status(201).json({ message: `Successfully edited post with id ${id}` });
+  })
+  .post((req, res) => {
+    const id = req.params.id;
+    res.status(201).json({ message: `Successfully added post with id ${id}` });
+  });
 
 server.listen(3000, () => {
   console.log("Server is listening on port 3000");
