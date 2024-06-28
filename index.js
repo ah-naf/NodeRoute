@@ -189,10 +189,9 @@ class Route {
       const handler = this.handlers[method];
 
       if (handler) {
-        req.params = this.extractParams(
-          this.path,
-          new URL(req.url, `http://${req.headers.host}`).pathname
-        );
+        const parsedUrl = new URL(req.url, `http://${req.headers.host}`);
+        req.params = this.extractParams(this.path, parsedUrl.pathname);
+        req.query = Object.fromEntries(parsedUrl.searchParams.entries());
         handler(req, res);
       } else {
         serve404(res);
@@ -319,10 +318,6 @@ class MyHttp {
 // Example usage
 const server = new MyHttp();
 
-server.Route("/post/lol/custom").get((req, res) => {
-  res.status(200).json({ message: `Normal Route` });
-});
-
 const PostRoute = server.Route("/post/:id/custom");
 PostRoute.get((req, res) => {
   const id = req.params.id;
@@ -336,6 +331,10 @@ PostRoute.get((req, res) => {
     const id = req.params.id;
     res.status(201).json({ message: `Successfully added post with id ${id}` });
   });
+
+server.Route("/post/lol/custom").get((req, res) => {
+  res.status(200).json({ message: req.query });
+});
 
 server.listen(3000, () => {
   console.log("Server is listening on port 3000");
