@@ -3,6 +3,7 @@ const fs = require("fs").promises;
 const fsStream = require("fs");
 const path = require("path");
 
+// Define mime types for different file extensions
 const mimeTypes = {
   ".html": "text/html",
   ".js": "application/javascript",
@@ -14,13 +15,13 @@ const mimeTypes = {
   ".txt": "text/plain",
 };
 
+// Serve the 404 page when a file is not found or there's an error
 function serve404(res) {
   const filePath = path.join(__dirname, "public", "404.html");
   res.statusCode = 404;
   res.setHeader("Content-Type", "text/html");
 
   const readStream = fsStream.createReadStream(filePath);
-
   readStream.on("error", (error) => {
     console.error("Error serving 404 page:", error);
     res.setHeader("Content-Type", "text/plain");
@@ -30,6 +31,7 @@ function serve404(res) {
   readStream.pipe(res);
 }
 
+// Route class to handle different HTTP methods and static file serving
 class Route {
   constructor(path) {
     if (typeof path !== "string" || !path) {
@@ -46,12 +48,14 @@ class Route {
     this.options = {};
   }
 
+  // Validate that the handler is a function
   validateHandler(handler) {
     if (typeof handler !== "function") {
       throw new Error("Handler must be a function");
     }
   }
 
+  // Register a handler for a specific HTTP method
   registerHandler(method, handler) {
     if (this.handlers[method]) {
       throw new Error(
@@ -62,26 +66,28 @@ class Route {
     this.handlers[method] = handler;
   }
 
+  // Chainable methods for registering GET, POST, PUT, DELETE handlers
   get(handler) {
     this.registerHandler("GET", handler);
-    return this; // Return this for chaining
+    return this;
   }
 
   post(handler) {
     this.registerHandler("POST", handler);
-    return this; // Return this for chaining
+    return this;
   }
 
   put(handler) {
     this.registerHandler("PUT", handler);
-    return this; // Return this for chaining
+    return this;
   }
 
   delete(handler) {
     this.registerHandler("DELETE", handler);
-    return this; // Return this for chaining
+    return this;
   }
 
+  // Add static routes from a directory recursively
   async addStaticRoutes(rootPath, prefix = "") {
     try {
       const stat = await fs.lstat(rootPath);
@@ -105,12 +111,13 @@ class Route {
     }
   }
 
+  // Serve static file to the response
   async serveStaticFile(filePath, res) {
     try {
-      const stat = await fs.lstat(filePath); // Check if the file exists and if it's a file or directory
+      const stat = await fs.lstat(filePath);
 
       if (stat.isDirectory()) {
-        throw new Error("EISDIR"); // Throw an error if it's a directory
+        throw new Error("EISDIR"); // Error if it's a directory
       }
 
       const fileStream = fsStream.createReadStream(filePath);
@@ -137,6 +144,7 @@ class Route {
     }
   }
 
+  // Handle incoming requests for this route
   async handleRequest(req, res) {
     const urlPath = req.url === "/" ? "/index.html" : req.url;
 
@@ -155,6 +163,7 @@ class Route {
     }
   }
 
+  // Set up static file serving for this route
   sendStatic(staticDir, options = {}) {
     if (typeof staticDir !== "string" || !staticDir) {
       throw new Error("Provide a valid static directory path");
@@ -168,10 +177,11 @@ class Route {
       console.error("Error adding static routes:", error);
     });
 
-    return this; // Return this for chaining
+    return this;
   }
 }
 
+// Main server class
 class MyHttp {
   constructor() {
     this.server = http.createServer();
@@ -204,6 +214,7 @@ class MyHttp {
         res.setHeader("Content-Type", "application/json");
         res.end(JSON.stringify(data));
       };
+
       // First, check for static routes
       let staticRoute = this.routes.find(
         (route) => route.staticRoutes.has(req.url) && req.method === "GET"
@@ -249,6 +260,7 @@ class MyHttp {
     });
   }
 
+  // Create a new route
   Route(path) {
     if (this.routes.some((route) => route.path === path)) {
       throw new Error(`Route for path "${path}" is already defined`);
@@ -258,6 +270,7 @@ class MyHttp {
     return route;
   }
 
+  // Start the server
   listen(port, cb) {
     this.server.listen(port, cb);
   }
@@ -267,12 +280,9 @@ class MyHttp {
 const server = new MyHttp();
 
 const homeUrl = "/";
+server.Route(homeUrl).sendStatic(path.join(__dirname, "public"));
 
-// const homeRoute = server.Route(homeUrl).sendStatic(path.join(__dirname, "public"));
-
-const someRoute = server
-  .Route("/another")
-  .sendStatic(path.join(__dirname, "public1"));
+const someRoute = server.Route("/another").sendStatic(path.join(__dirname, "public1"));
 
 server.listen(3000, () => {
   console.log("Server is listening on port 3000");
