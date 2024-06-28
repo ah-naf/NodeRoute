@@ -1,39 +1,17 @@
 const http = require("http");
 const fs = require("fs").promises;
-const fsStream = require("fs");
 const path = require("path");
 const url = require("url");
+const { serve404, mimeTypes, serveStaticFile } = require("./utils");
 
-// Define mime types for different file extensions
-const mimeTypes = {
-  ".html": "text/html",
-  ".js": "application/javascript",
-  ".css": "text/css",
-  ".json": "application/json",
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".gif": "image/gif",
-  ".txt": "text/plain",
-};
-
-// Serve the 404 page when a file is not found or there's an error
-function serve404(res) {
-  const filePath = path.join(__dirname, "public", "404.html");
-  res.statusCode = 404;
-  res.setHeader("Content-Type", "text/html");
-
-  const readStream = fsStream.createReadStream(filePath);
-  readStream.on("error", (error) => {
-    console.error("Error serving 404 page:", error);
-    res.setHeader("Content-Type", "text/plain");
-    res.end("404 - Not Found");
-  });
-
-  readStream.pipe(res);
-}
-
-// Route class to handle different HTTP methods and static file serving
+/**
+ * Class representing a route.
+ */
 class Route {
+  /**
+   * Create a route.
+   * @param {string} path - The route path.
+   */
   constructor(path) {
     if (typeof path !== "string" || !path) {
       throw new Error("Provide a valid route path");
@@ -49,14 +27,21 @@ class Route {
     this.options = {};
   }
 
-  // Validate that the handler is a function
+  /**
+   * Validate that the handler is a function.
+   * @param {Function} handler - The handler function.
+   */
   validateHandler(handler) {
     if (typeof handler !== "function") {
       throw new Error("Handler must be a function");
     }
   }
 
-  // Register a handler for a specific HTTP method
+  /**
+   * Register a handler for a specific HTTP method.
+   * @param {string} method - The HTTP method.
+   * @param {Function} handler - The handler function.
+   */
   registerHandler(method, handler) {
     if (this.handlers[method]) {
       throw new Error(
@@ -67,28 +52,51 @@ class Route {
     this.handlers[method] = handler;
   }
 
-  // Chainable methods for registering GET, POST, PUT, DELETE handlers
+  /**
+   * Chainable method for registering a GET handler.
+   * @param {Function} handler - The GET handler function.
+   * @returns {Route} The current route instance.
+   */
   get(handler) {
     this.registerHandler("GET", handler);
     return this;
   }
 
+  /**
+   * Chainable method for registering a POST handler.
+   * @param {Function} handler - The POST handler function.
+   * @returns {Route} The current route instance.
+   */
   post(handler) {
     this.registerHandler("POST", handler);
     return this;
   }
 
+  /**
+   * Chainable method for registering a PUT handler.
+   * @param {Function} handler - The PUT handler function.
+   * @returns {Route} The current route instance.
+   */
   put(handler) {
     this.registerHandler("PUT", handler);
     return this;
   }
 
+  /**
+   * Chainable method for registering a DELETE handler.
+   * @param {Function} handler - The DELETE handler function.
+   * @returns {Route} The current route instance.
+   */
   delete(handler) {
     this.registerHandler("DELETE", handler);
     return this;
   }
 
-  // Add static routes from a directory recursively
+  /**
+   * Add static routes from a directory recursively.
+   * @param {string} rootPath - The root directory path.
+   * @param {string} [prefix=""] - The URL prefix.
+   */
   async addStaticRoutes(rootPath, prefix = "") {
     try {
       const stat = await fs.lstat(rootPath);
@@ -112,40 +120,12 @@ class Route {
     }
   }
 
-  // Serve static file to the response
-  async serveStaticFile(filePath, res) {
-    try {
-      const stat = await fs.lstat(filePath);
-
-      if (stat.isDirectory()) {
-        throw new Error("EISDIR"); // Error if it's a directory
-      }
-
-      const fileStream = fsStream.createReadStream(filePath);
-      const ext = path.extname(filePath);
-      const mimeType = mimeTypes[ext] || "application/octet-stream";
-
-      res.setHeader("Content-Type", mimeType);
-      fileStream.pipe(res);
-
-      fileStream.on("error", (error) => {
-        console.error("Error serving static file:", error);
-        res.writeHead(500, { "Content-Type": "text/plain" });
-        res.end("Internal Server Error");
-      });
-    } catch (error) {
-      if (error.message === "EISDIR" || error.code === "ENOENT") {
-        console.error("Error serving static file:", error);
-        serve404(res); // Serve the 404 page if the file does not exist or is a directory
-      } else {
-        console.error("Unexpected error serving static file:", error);
-        res.writeHead(500, { "Content-Type": "text/plain" });
-        res.end("Internal Server Error");
-      }
-    }
-  }
-
-  // Parse URL parameters based on the route pattern
+  /**
+   * Parse URL parameters based on the route pattern.
+   * @param {string} routePattern - The route pattern.
+   * @param {string} actualUrl - The actual URL.
+   * @returns {Object|null} The parsed parameters or null if no match.
+   */
   extractParams(routePattern, actualUrl) {
     const paramNames = [];
     const exists = new Set();
@@ -177,13 +157,17 @@ class Route {
     return params;
   }
 
-  // Handle incoming requests for this route
+  /**
+   * Handle incoming requests for this route.
+   * @param {http.IncomingMessage} req - The request object.
+   * @param {http.ServerResponse} res - The response object.
+   */
   async handleRequest(req, res) {
     const urlPath = req.url === "/" ? "/index.html" : req.url;
 
     if (this.staticRoutes.has(urlPath) && req.method === "GET") {
       const filePath = this.staticRoutes.get(urlPath);
-      await this.serveStaticFile(filePath, res);
+      await serveStaticFile(filePath, res);
     } else {
       const method = req.method.toUpperCase();
       const handler = this.handlers[method];
@@ -199,7 +183,12 @@ class Route {
     }
   }
 
-  // Set up static file serving for this route
+  /**
+   * Set up static file serving for this route.
+   * @param {string} staticDir - The static directory path.
+   * @param {Object} [options={}] - Additional options.
+   * @returns {Route} The current route instance.
+   */
   sendStatic(staticDir, options = {}) {
     if (typeof staticDir !== "string" || !staticDir) {
       throw new Error("Provide a valid static directory path");
@@ -217,7 +206,9 @@ class Route {
   }
 }
 
-// Main server class
+/**
+ * Main server class.
+ */
 class MyHttp {
   constructor() {
     this.server = http.createServer();
@@ -258,7 +249,7 @@ class MyHttp {
 
       if (staticRoute) {
         const filePath = staticRoute.staticRoutes.get(req.url);
-        await staticRoute.serveStaticFile(filePath, res);
+        await serveStaticFile(filePath, res);
       } else {
         staticRoute = this.routes.find((route) => {
           const htmlFile = route.options.index
@@ -281,7 +272,7 @@ class MyHttp {
             (req.url === "/" ? "/" : req.url + "/") + htmlFile
           );
 
-          await staticRoute.serveStaticFile(filePath, res);
+          await serveStaticFile(filePath, res);
         } else {
           // Fallback to dynamic routes
           const route = this.routes.find((route) => {
@@ -299,7 +290,11 @@ class MyHttp {
     });
   }
 
-  // Create a new route
+  /**
+   * Create a new route.
+   * @param {string} path - The route path.
+   * @returns {Route} The new route instance.
+   */
   Route(path) {
     if (this.routes.some((route) => route.path === path)) {
       throw new Error(`Route for path "${path}" is already defined`);
@@ -309,7 +304,11 @@ class MyHttp {
     return route;
   }
 
-  // Start the server
+  /**
+   * Start the server.
+   * @param {number} port - The port number.
+   * @param {Function} cb - The callback function.
+   */
   listen(port, cb) {
     this.server.listen(port, cb);
   }
@@ -317,6 +316,11 @@ class MyHttp {
 
 // Example usage
 const server = new MyHttp();
+
+
+server.Route("/post/lol/custom").get((req, res) => {
+  res.status(200).json({ message: `Normal Route` });
+});
 
 const PostRoute = server.Route("/post/:id/custom");
 PostRoute.get((req, res) => {
@@ -331,10 +335,6 @@ PostRoute.get((req, res) => {
     const id = req.params.id;
     res.status(201).json({ message: `Successfully added post with id ${id}` });
   });
-
-server.Route("/post/lol/custom").get((req, res) => {
-  res.status(200).json({ message: req.query });
-});
 
 server.listen(3000, () => {
   console.log("Server is listening on port 3000");
