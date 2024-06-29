@@ -196,7 +196,58 @@ class Route {
         });
 
         req.on("end", () => {
-          req.body = body ? JSON.parse(body) : {};
+          const contentType = req.headers["content-type"];
+
+          if (contentType === "application/json") {
+            try {
+              req.body = body ? JSON.parse(body) : {};
+            } catch (error) {
+              console.error("Error parsing JSON:", error);
+              res.writeHead(400, { "Content-Type": "text/plain" });
+              res.end("Bad Request");
+              return;
+            }
+          } else if (contentType.includes("multipart/form-data")) {
+            const boundary = contentType.split(";")[1].split("=")[1];
+            const parts = body.split(`--${boundary}`).slice(1, -1);
+
+            req.body = {};
+            req.files = [];
+            let tempBody = {};
+
+            parts.forEach((part) => {
+              const [rawHeaders, rawBody] = part.split("\r\n\r\n");
+              const headers = rawHeaders.split("\r\n");
+              const disposition = headers.find((header) =>
+                header.startsWith("Content-Disposition")
+              );
+
+              if (disposition) {
+                const nameMatch = disposition.match(/name="([^"]+)"/);
+                const filenameMatch = disposition.match(/filename="([^"]+)"/);
+
+                if (nameMatch) {
+                  const name = nameMatch[1];
+
+                  if (filenameMatch) {
+                    const filename = filenameMatch[1];
+                    const fileContent = rawBody.split("\r\n")[0];
+
+                    req.files.push({
+                      fieldName: name,
+                      filename,
+                      content: fileContent,
+                    });
+                  } else {
+                    const fieldValue = rawBody.trim();
+                    tempBody = { ...tempBody, [name]: fieldValue };
+                  }
+                }
+              }
+            });
+
+            req.body = tempBody;
+          }
 
           // Execute global middlewares, specific middlewares and handler
           const allHandlers = [...this.globalMiddlewares, ...handlers];
@@ -247,13 +298,16 @@ class Route {
 /**
  * Main server class.
  */
-class MyHttp {
+class NodeRoute {
+  #server;
+  #routes;
+  #globalMiddlewares;
   constructor() {
-    this.server = http.createServer();
-    this.routes = [];
-    this.globalMiddlewares = [];
+    this.#server = http.createServer();
+    this.#routes = [];
+    this.#globalMiddlewares = [];
 
-    this.server.on("request", async (req, res) => {
+    this.#server.on("request", async (req, res) => {
       res.sendFile = async (filePath) => {
         try {
           const fileHandle = await fs.open(filePath, "r");
@@ -289,7 +343,7 @@ class MyHttp {
       // Handle route request
       const handleRouteRequest = async () => {
         // First, check for static routes
-        let staticRoute = this.routes.find(
+        let staticRoute = this.#routes.find(
           (route) => route.staticRoutes.has(req.url) && req.method === "GET"
         );
 
@@ -297,7 +351,7 @@ class MyHttp {
           const filePath = staticRoute.staticRoutes.get(req.url);
           await serveStaticFile(filePath, res);
         } else {
-          staticRoute = this.routes.find((route) => {
+          staticRoute = this.#routes.find((route) => {
             const htmlFile = route.options.index
               ? route.options.index
               : "index.html";
@@ -321,7 +375,7 @@ class MyHttp {
             await serveStaticFile(filePath, res);
           } else {
             // Fallback to dynamic routes
-            const route = this.routes.find((route) => {
+            const route = this.#routes.find((route) => {
               return route.extractParams(
                 route.path,
                 url.parse(req.url).pathname
@@ -340,10 +394,10 @@ class MyHttp {
 
       // Execute global middlewares
       const executeGlobalMiddlewares = (index) => {
-        if (index >= this.globalMiddlewares.length) {
+        if (index >= this.#globalMiddlewares.length) {
           handleRouteRequest();
         } else {
-          this.globalMiddlewares[index](req, res, () =>
+          this.#globalMiddlewares[index](req, res, () =>
             executeGlobalMiddlewares(index + 1)
           );
         }
@@ -361,7 +415,7 @@ class MyHttp {
     if (typeof middleware !== "function") {
       throw new Error("Middleware must be a function");
     }
-    this.globalMiddlewares.push(middleware);
+    this.#globalMiddlewares.push(middleware);
   }
 
   /**
@@ -370,11 +424,11 @@ class MyHttp {
    * @returns {Route} The new route instance.
    */
   route(path) {
-    if (this.routes.some((route) => route.path === path)) {
+    if (this.#routes.some((route) => route.path === path)) {
       throw new Error(`Route for path "${path}" is already defined`);
     }
     const route = new Route(path);
-    this.routes.push(route);
+    this.#routes.push(route);
     return route;
   }
 
@@ -384,57 +438,8 @@ class MyHttp {
    * @param {Function} cb - The callback function.
    */
   listen(port, cb) {
-    this.server.listen(port, cb);
+    this.#server.listen(port, cb);
   }
 }
 
-// Example usage
-const server = new MyHttp();
-
-const middleware1 = (req, res, next) => {
-  // Authenticate user
-  console.log("middleware 1");
-  req.user = "ahnaf";
-  next();
-};
-
-const middleware2 = (req, res, next) => {
-  // Do something else
-  console.log("middleware 2");
-  req.password = "shifat";
-
-  next();
-};
-
-const PostRoute = server.route("/post/:id/custom");
-
-PostRoute.get(middleware1, middleware2, (req, res) => {
-  const id = req.params.id;
-  res.status(200).json({ message: `Successfully fetched post with id ${id}` });
-}).post((req, res) => {
-  const id = req.params.id;
-  const body = req.body;
-  console.log(req.headers);
-  res
-    .status(201)
-    .json({ message: `Successfully added post with id ${id}`, body });
-});
-
-// // Global middleware
-PostRoute.use((req, res, next) => {
-  // Do something
-  setTimeout(() => {
-    console.log("Route based global middleware");
-    next();
-  }, 2000);
-});
-
-// Server global middleware
-server.use((req, res, next) => {
-  console.log("Server global middleware");
-  next();
-});
-
-server.listen(3000, () => {
-  console.log("Server is listening on port 3000");
-});
+module.exports = NodeRoute;
