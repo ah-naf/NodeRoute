@@ -176,7 +176,23 @@ class Route {
         const parsedUrl = new URL(req.url, `http://${req.headers.host}`);
         req.params = this.extractParams(this.path, parsedUrl.pathname);
         req.query = Object.fromEntries(parsedUrl.searchParams.entries());
-        handler(req, res);
+
+        // Collect body from request
+        let body = "";
+        req.on("data", (data) => {
+          body += data.toString();
+        });
+
+        req.on("end", () => {
+          req.body = body ? JSON.parse(body) : {};
+          handler(req, res);
+        });
+
+        req.on("error", (error) => {
+          console.error(error);
+          res.writeHead(500, { "Content-Type": "text/plain" });
+          res.end("Internal Server Error");
+        });
       } else {
         serve404(res);
       }
@@ -240,6 +256,11 @@ class MyHttp {
       res.json = (data) => {
         res.setHeader("Content-Type", "application/json");
         res.end(JSON.stringify(data));
+      };
+
+      res.send = (data) => {
+        res.setHeader("Content-Type", "text/plain");
+        res.end(data);
       };
 
       // First, check for static routes
@@ -316,7 +337,6 @@ class MyHttp {
 
 // Example usage
 const server = new MyHttp();
-
 
 server.Route("/post/lol/custom").get((req, res) => {
   res.status(200).json({ message: `Normal Route` });
