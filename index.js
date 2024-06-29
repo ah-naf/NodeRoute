@@ -25,6 +25,7 @@ class Route {
     };
     this.staticRoutes = new Map();
     this.options = {};
+    this.globalMiddlewares = [];
   }
 
   /**
@@ -38,57 +39,68 @@ class Route {
   }
 
   /**
-   * Register a handler for a specific HTTP method.
+   * Register a handler for a specific HTTP method along with middlewares.
    * @param {string} method - The HTTP method.
-   * @param {Function} handler - The handler function.
+   * @param {...Function} handlers - The handler and middleware functions.
    */
-  registerHandler(method, handler) {
+  registerHandler(method, ...handlers) {
     if (this.handlers[method]) {
       throw new Error(
         `${method} handler for path "${this.path}" is already defined`
       );
     }
-    this.validateHandler(handler);
-    this.handlers[method] = handler;
+    handlers.forEach(this.validateHandler);
+    this.handlers[method] = handlers;
   }
 
   /**
    * Chainable method for registering a GET handler.
-   * @param {Function} handler - The GET handler function.
+   * @param {...Function} handlers - The GET handler and middleware functions.
    * @returns {Route} The current route instance.
    */
-  get(handler) {
-    this.registerHandler("GET", handler);
+  get(...handlers) {
+    this.registerHandler("GET", ...handlers);
     return this;
   }
 
   /**
    * Chainable method for registering a POST handler.
-   * @param {Function} handler - The POST handler function.
+   * @param {...Function} handlers - The POST handler and middleware functions.
    * @returns {Route} The current route instance.
    */
-  post(handler) {
-    this.registerHandler("POST", handler);
+  post(...handlers) {
+    this.registerHandler("POST", ...handlers);
     return this;
   }
 
   /**
    * Chainable method for registering a PUT handler.
-   * @param {Function} handler - The PUT handler function.
+   * @param {...Function} handlers - The PUT handler and middleware functions.
    * @returns {Route} The current route instance.
    */
-  put(handler) {
-    this.registerHandler("PUT", handler);
+  put(...handlers) {
+    this.registerHandler("PUT", ...handlers);
     return this;
   }
 
   /**
    * Chainable method for registering a DELETE handler.
-   * @param {Function} handler - The DELETE handler function.
+   * @param {...Function} handlers - The DELETE handler and middleware functions.
    * @returns {Route} The current route instance.
    */
-  delete(handler) {
-    this.registerHandler("DELETE", handler);
+  delete(...handlers) {
+    this.registerHandler("DELETE", ...handlers);
+    return this;
+  }
+
+  /**
+   * Chainable method for registering global middleware.
+   * @param {...Function} middlewares - The middleware functions.
+   * @returns {Route} The current route instance.
+   */
+  use(...middlewares) {
+    middlewares.forEach(this.validateHandler);
+    this.globalMiddlewares.push(...middlewares);
     return this;
   }
 
@@ -170,9 +182,9 @@ class Route {
       await serveStaticFile(filePath, res);
     } else {
       const method = req.method.toUpperCase();
-      const handler = this.handlers[method];
+      const handlers = this.handlers[method];
 
-      if (handler) {
+      if (handlers) {
         const parsedUrl = new URL(req.url, `http://${req.headers.host}`);
         req.params = this.extractParams(this.path, parsedUrl.pathname);
         req.query = Object.fromEntries(parsedUrl.searchParams.entries());
@@ -185,7 +197,17 @@ class Route {
 
         req.on("end", () => {
           req.body = body ? JSON.parse(body) : {};
-          handler(req, res);
+
+          // Execute global middlewares, specific middlewares and handler
+          const allHandlers = [...this.globalMiddlewares, ...handlers];
+
+          // Execute middleware and handler
+          const executeHandlers = (index) => {
+            if (index >= allHandlers.length) return;
+            allHandlers[index](req, res, () => executeHandlers(index + 1));
+          };
+
+          executeHandlers(0);
         });
 
         req.on("error", (error) => {
@@ -338,23 +360,41 @@ class MyHttp {
 // Example usage
 const server = new MyHttp();
 
-server.Route("/post/lol/custom").get((req, res) => {
-  res.status(200).json({ message: `Normal Route` });
-});
+const middleware1 = (req, res, next) => {
+  // Authenticate user
+  console.log("middleware 1");
+  req.user = "ahnaf";
+  next();
+};
+
+const middleware2 = (req, res, next) => {
+  // Do something else
+  console.log("middleware 2");
+  req.password = "shifat";
+
+  next();
+};
 
 const PostRoute = server.Route("/post/:id/custom");
-PostRoute.get((req, res) => {
+
+PostRoute.get(middleware1, middleware2, (req, res) => {
   const id = req.params.id;
   res.status(200).json({ message: `Successfully fetched post with id ${id}` });
-})
-  .put((req, res) => {
-    const id = req.params.id;
-    res.status(201).json({ message: `Successfully edited post with id ${id}` });
-  })
-  .post((req, res) => {
-    const id = req.params.id;
-    res.status(201).json({ message: `Successfully added post with id ${id}` });
-  });
+}).post((req, res) => {
+  const id = req.params.id;
+  const body = req.body;
+  console.log(req.headers);
+  res
+    .status(201)
+    .json({ message: `Successfully added post with id ${id}`, body });
+});
+
+// // Global middleware
+PostRoute.use((req, res, next) => {
+  // Do something
+  console.log("Route based global middleware");
+  next();
+});
 
 server.listen(3000, () => {
   console.log("Server is listening on port 3000");
