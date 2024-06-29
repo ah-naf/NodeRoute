@@ -251,6 +251,7 @@ class MyHttp {
   constructor() {
     this.server = http.createServer();
     this.routes = [];
+    this.globalMiddlewares = [];
 
     this.server.on("request", async (req, res) => {
       res.sendFile = async (filePath) => {
@@ -285,52 +286,82 @@ class MyHttp {
         res.end(data);
       };
 
-      // First, check for static routes
-      let staticRoute = this.routes.find(
-        (route) => route.staticRoutes.has(req.url) && req.method === "GET"
-      );
+      // Handle route request
+      const handleRouteRequest = async () => {
+        // First, check for static routes
+        let staticRoute = this.routes.find(
+          (route) => route.staticRoutes.has(req.url) && req.method === "GET"
+        );
 
-      if (staticRoute) {
-        const filePath = staticRoute.staticRoutes.get(req.url);
-        await serveStaticFile(filePath, res);
-      } else {
-        staticRoute = this.routes.find((route) => {
-          const htmlFile = route.options.index
-            ? route.options.index
-            : "index.html";
-
-          return (
-            route.path === req.url &&
-            req.method === "GET" &&
-            route.staticRoutes.has(
-              (req.url === "/" ? "/" : req.url + "/") + htmlFile
-            )
-          );
-        });
         if (staticRoute) {
-          const htmlFile = staticRoute.options.index
-            ? staticRoute.options.index
-            : "index.html";
-          const filePath = staticRoute.staticRoutes.get(
-            (req.url === "/" ? "/" : req.url + "/") + htmlFile
-          );
-
+          const filePath = staticRoute.staticRoutes.get(req.url);
           await serveStaticFile(filePath, res);
         } else {
-          // Fallback to dynamic routes
-          const route = this.routes.find((route) => {
-            return route.extractParams(route.path, url.parse(req.url).pathname);
-          });
+          staticRoute = this.routes.find((route) => {
+            const htmlFile = route.options.index
+              ? route.options.index
+              : "index.html";
 
-          if (route) {
-            await route.handleRequest(req, res);
+            return (
+              route.path === req.url &&
+              req.method === "GET" &&
+              route.staticRoutes.has(
+                (req.url === "/" ? "/" : req.url + "/") + htmlFile
+              )
+            );
+          });
+          if (staticRoute) {
+            const htmlFile = staticRoute.options.index
+              ? staticRoute.options.index
+              : "index.html";
+            const filePath = staticRoute.staticRoutes.get(
+              (req.url === "/" ? "/" : req.url + "/") + htmlFile
+            );
+
+            await serveStaticFile(filePath, res);
           } else {
-            // Serve the custom 404 page
-            serve404(res);
+            // Fallback to dynamic routes
+            const route = this.routes.find((route) => {
+              return route.extractParams(
+                route.path,
+                url.parse(req.url).pathname
+              );
+            });
+
+            if (route) {
+              await route.handleRequest(req, res);
+            } else {
+              // Serve the custom 404 page
+              serve404(res);
+            }
           }
         }
-      }
+      };
+
+      // Execute global middlewares
+      const executeGlobalMiddlewares = (index) => {
+        if (index >= this.globalMiddlewares.length) {
+          handleRouteRequest();
+        } else {
+          this.globalMiddlewares[index](req, res, () =>
+            executeGlobalMiddlewares(index + 1)
+          );
+        }
+      };
+
+      executeGlobalMiddlewares(0);
     });
+  }
+
+  /**
+   * Register a global middleware.
+   * @param {Function} middleware - The middleware function.
+   */
+  use(middleware) {
+    if (typeof middleware !== "function") {
+      throw new Error("Middleware must be a function");
+    }
+    this.globalMiddlewares.push(middleware);
   }
 
   /**
@@ -338,7 +369,7 @@ class MyHttp {
    * @param {string} path - The route path.
    * @returns {Route} The new route instance.
    */
-  Route(path) {
+  route(path) {
     if (this.routes.some((route) => route.path === path)) {
       throw new Error(`Route for path "${path}" is already defined`);
     }
@@ -375,7 +406,7 @@ const middleware2 = (req, res, next) => {
   next();
 };
 
-const PostRoute = server.Route("/post/:id/custom");
+const PostRoute = server.route("/post/:id/custom");
 
 PostRoute.get(middleware1, middleware2, (req, res) => {
   const id = req.params.id;
@@ -392,7 +423,15 @@ PostRoute.get(middleware1, middleware2, (req, res) => {
 // // Global middleware
 PostRoute.use((req, res, next) => {
   // Do something
-  console.log("Route based global middleware");
+  setTimeout(() => {
+    console.log("Route based global middleware");
+    next();
+  }, 2000);
+});
+
+// Server global middleware
+server.use((req, res, next) => {
+  console.log("Server global middleware");
   next();
 });
 
