@@ -26,4 +26,5 @@
     "url": "https://github.com/ah-naf/noderoute/issues"
   },
   "homepage": "https://github.com/ah-naf/noderoute#readme",
+  "dependencies": {}
 }
