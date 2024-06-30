@@ -126,11 +126,48 @@ The NodeRoute package is a lightweight, flexible HTTP server framework for Node.
    );
    ```
 
+## Installing and Using NodeRoute
+
+NodeRoute is available on the npm registry, making it easy to install and use in your Node.js projects. Follow the steps below to get started.
+
+### Installation
+
+To install NodeRoute, you can use npm or yarn. Run the following command in your project directory:
+
+```bash
+npm install @ah_naf/noderoute
+```
+
+Or, if you prefer using yarn:
+
+```bash
+yarn add @ah_naf/noderoute
+```
+
 ### Example Usage
+
+Here’s a complete example demonstrating how to use NodeRoute in a Node.js application.
+
+#### Project Structure
+
+Create a project structure like this:
+
+```
+my-noderoute-app/
+├── public/
+│   ├── index.html
+│   └── custom_404.html
+├── index.js
+├── package.json
+```
+
+#### Setting Up `index.js`
+
+In your `index.js` file, set up the NodeRoute server, define routes, and add middlewares:
 
 ```javascript
 const path = require("path");
-const NodeRoute = require("./index");
+const NodeRoute = require("@ah_naf/noderoute");
 
 const server = new NodeRoute({
   custom404Path: path.join(__dirname, "public", "custom_404.html"),
@@ -177,6 +214,64 @@ server.listen(3000, () => {
 });
 ```
 
+#### `public/index.html`
+
+Create a simple HTML file in the `public` directory:
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NodeRoute Example</title>
+</head>
+<body>
+  <h1>Welcome to NodeRoute</h1>
+  <p>This is a static file served by NodeRoute.</p>
+</body>
+</html>
+```
+
+#### `public/custom_404.html`
+
+Create a custom 404 error page:
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>404 Not Found</title>
+</head>
+<body>
+  <h1>404 - Page Not Found</h1>
+  <p>Sorry, the page you are looking for does not exist.</p>
+</body>
+</html>
+```
+
+#### Running the Server
+
+To start the server, run the following command in your project directory:
+
+```bash
+node index.js
+```
+
+You should see the following output:
+
+```bash
+Server is listening on port 3000
+```
+
+#### Accessing the Server
+
+Open your browser and navigate to `http://localhost:3000`. You should see the content of `public/index.html`.
+
+To test the route-based middleware and handlers, navigate to `http://localhost:3000/public`.
+
 ### Options
 
 - **custom404Path:** Path to a custom 404 page.
@@ -190,7 +285,3 @@ server.listen(3000, () => {
 - **Limited Features:** Compared to mature frameworks like Express.js, NodeRoute offers fewer built-in features.
 - **Manual Middleware Management:** Middleware chaining is manual and requires careful order management.
 - **No Built-in Body Parsing:** Requires custom handling for different content types.
-
-## Conclusion
-
-NodeRoute is a simple yet powerful package for building HTTP servers in Node.js. It provides essential functionalities for routing, middleware management, and static file serving while allowing for customization through various options. Although it may not be as feature-rich as some other frameworks, it offers a straightforward and modular approach to building web applications. The ability to override global options for specific routes and support for multiple levels of middleware adds flexibility, making it easier to manage route-specific requirements.
