@@ -1,18 +1,10 @@
 const http = require("http");
 const fs = require("fs").promises;
 const path = require("path");
-const url = require("url");
 const { serve404, mimeTypes, serveStaticFile } = require("./utils");
 
-/**
- * Class representing a route.
- */
 class Route {
-  /**
-   * Create a route.
-   * @param {string} path - The route path.
-   */
-  constructor(path) {
+  constructor(path, options = {}) {
     if (typeof path !== "string" || !path) {
       throw new Error("Provide a valid route path");
     }
@@ -24,25 +16,16 @@ class Route {
       DELETE: null,
     };
     this.staticRoutes = new Map();
-    this.options = {};
+    this.options = options;
     this.globalMiddlewares = [];
   }
 
-  /**
-   * Validate that the handler is a function.
-   * @param {Function} handler - The handler function.
-   */
   validateHandler(handler) {
     if (typeof handler !== "function") {
       throw new Error("Handler must be a function");
     }
   }
 
-  /**
-   * Register a handler for a specific HTTP method along with middlewares.
-   * @param {string} method - The HTTP method.
-   * @param {...Function} handlers - The handler and middleware functions.
-   */
   registerHandler(method, ...handlers) {
     if (this.handlers[method]) {
       throw new Error(
@@ -53,62 +36,32 @@ class Route {
     this.handlers[method] = handlers;
   }
 
-  /**
-   * Chainable method for registering a GET handler.
-   * @param {...Function} handlers - The GET handler and middleware functions.
-   * @returns {Route} The current route instance.
-   */
   get(...handlers) {
     this.registerHandler("GET", ...handlers);
     return this;
   }
 
-  /**
-   * Chainable method for registering a POST handler.
-   * @param {...Function} handlers - The POST handler and middleware functions.
-   * @returns {Route} The current route instance.
-   */
   post(...handlers) {
     this.registerHandler("POST", ...handlers);
     return this;
   }
 
-  /**
-   * Chainable method for registering a PUT handler.
-   * @param {...Function} handlers - The PUT handler and middleware functions.
-   * @returns {Route} The current route instance.
-   */
   put(...handlers) {
     this.registerHandler("PUT", ...handlers);
     return this;
   }
 
-  /**
-   * Chainable method for registering a DELETE handler.
-   * @param {...Function} handlers - The DELETE handler and middleware functions.
-   * @returns {Route} The current route instance.
-   */
   delete(...handlers) {
     this.registerHandler("DELETE", ...handlers);
     return this;
   }
 
-  /**
-   * Chainable method for registering global middleware.
-   * @param {...Function} middlewares - The middleware functions.
-   * @returns {Route} The current route instance.
-   */
   use(...middlewares) {
     middlewares.forEach(this.validateHandler);
     this.globalMiddlewares.push(...middlewares);
     return this;
   }
 
-  /**
-   * Add static routes from a directory recursively.
-   * @param {string} rootPath - The root directory path.
-   * @param {string} [prefix=""] - The URL prefix.
-   */
   async addStaticRoutes(rootPath, prefix = "") {
     try {
       const stat = await fs.lstat(rootPath);
@@ -116,7 +69,6 @@ class Route {
         const urlPath = path
           .join(prefix, path.relative(this.staticDir, rootPath))
           .replace(/\\/g, "/");
-
         this.staticRoutes.set(
           (this.path === "/" ? "/" : this.path + "/") + urlPath,
           path.join(this.staticDir, urlPath)
@@ -132,12 +84,6 @@ class Route {
     }
   }
 
-  /**
-   * Parse URL parameters based on the route pattern.
-   * @param {string} routePattern - The route pattern.
-   * @param {string} actualUrl - The actual URL.
-   * @returns {Object|null} The parsed parameters or null if no match.
-   */
   extractParams(routePattern, actualUrl) {
     const paramNames = [];
     const exists = new Set();
@@ -150,7 +96,7 @@ class Route {
 
     const params = {};
     for (let i = 0; i < routeSegments.length; i++) {
-      if (exists.has(routeSegments[i])) {
+      if (routeSegments[i] && exists.has(routeSegments[i])) {
         throw new Error(
           "Found duplicate parameter in URL. Parameter name should be unique"
         );
@@ -169,11 +115,6 @@ class Route {
     return params;
   }
 
-  /**
-   * Handle incoming requests for this route.
-   * @param {http.IncomingMessage} req - The request object.
-   * @param {http.ServerResponse} res - The response object.
-   */
   async handleRequest(req, res) {
     const urlPath = req.url === "/" ? "/index.html" : req.url;
 
@@ -189,10 +130,18 @@ class Route {
         req.params = this.extractParams(this.path, parsedUrl.pathname);
         req.query = Object.fromEntries(parsedUrl.searchParams.entries());
 
-        // Collect body from request
-        let body = "";
+        let body = Buffer.alloc(0);
+        let bodySize = 0;
+
         req.on("data", (data) => {
-          body += data.toString();
+          bodySize += data.length;
+          if (bodySize > this.options.bodySizeLimit) {
+            res.writeHead(413, { "Content-Type": "text/plain" });
+            res.end("Payload Too Large");
+            req.destroy();
+            return;
+          }
+          body = Buffer.concat([body, data]);
         });
 
         req.on("end", () => {
@@ -200,59 +149,41 @@ class Route {
 
           if (contentType === "application/json") {
             try {
-              req.body = body ? JSON.parse(body) : {};
+              req.body = body ? JSON.parse(body.toString()) : {};
             } catch (error) {
               console.error("Error parsing JSON:", error);
               res.writeHead(400, { "Content-Type": "text/plain" });
               res.end("Bad Request");
               return;
             }
-          } else if (contentType.includes("multipart/form-data")) {
-            const boundary = contentType.split(";")[1].split("=")[1];
-            const parts = body.split(`--${boundary}`).slice(1, -1);
-
-            req.body = {};
-            req.files = [];
-            let tempBody = {};
-
-            parts.forEach((part) => {
-              const [rawHeaders, rawBody] = part.split("\r\n\r\n");
-              const headers = rawHeaders.split("\r\n");
-              const disposition = headers.find((header) =>
-                header.startsWith("Content-Disposition")
-              );
-
-              if (disposition) {
-                const nameMatch = disposition.match(/name="([^"]+)"/);
-                const filenameMatch = disposition.match(/filename="([^"]+)"/);
-
-                if (nameMatch) {
-                  const name = nameMatch[1];
-
-                  if (filenameMatch) {
-                    const filename = filenameMatch[1];
-                    const fileContent = rawBody.split("\r\n")[0];
-
-                    req.files.push({
-                      fieldName: name,
-                      filename,
-                      content: fileContent,
-                    });
-                  } else {
-                    const fieldValue = rawBody.trim();
-                    tempBody = { ...tempBody, [name]: fieldValue };
-                  }
-                }
-              }
-            });
-
-            req.body = tempBody;
+          } else if (
+            contentType &&
+            contentType.includes("multipart/form-data")
+          ) {
+            // Placeholder for multipart handling or middleware delegation
+            res.writeHead(400, { "Content-Type": "text/plain" });
+            res.end("Multipart form data not supported");
+            return;
+          } else if (contentType) {
+            res.writeHead(400, { "Content-Type": "text/plain" });
+            res.end("Unsupported content-type");
+            return;
           }
 
-          // Execute global middlewares, specific middlewares and handler
+          if (this.options.defaultHeaders) {
+            for (const [key, value] of Object.entries(
+              this.options.defaultHeaders
+            )) {
+              res.setHeader(key, value);
+            }
+          }
+
+          if (this.options.enableLogging) {
+            console.log(`${req.method} ${req.url}`);
+          }
+
           const allHandlers = [...this.globalMiddlewares, ...handlers];
 
-          // Execute middleware and handler
           const executeHandlers = (index) => {
             if (index >= allHandlers.length) return;
             allHandlers[index](req, res, () => executeHandlers(index + 1));
@@ -267,17 +198,11 @@ class Route {
           res.end("Internal Server Error");
         });
       } else {
-        serve404(res);
+        serve404(res, this.options.custom404Path);
       }
     }
   }
 
-  /**
-   * Set up static file serving for this route.
-   * @param {string} staticDir - The static directory path.
-   * @param {Object} [options={}] - Additional options.
-   * @returns {Route} The current route instance.
-   */
   sendStatic(staticDir, options = {}) {
     if (typeof staticDir !== "string" || !staticDir) {
       throw new Error("Provide a valid static directory path");
@@ -286,7 +211,6 @@ class Route {
     this.staticDir = staticDir;
     this.options = options;
 
-    // Ensure promises are handled properly
     this.addStaticRoutes(staticDir).catch((error) => {
       console.error("Error adding static routes:", error);
     });
@@ -295,17 +219,15 @@ class Route {
   }
 }
 
-/**
- * Main server class.
- */
 class NodeRoute {
   #server;
   #routes;
   #globalMiddlewares;
-  constructor() {
+  constructor(options = {}) {
     this.#server = http.createServer();
     this.#routes = [];
     this.#globalMiddlewares = [];
+    this.options = options;
 
     this.#server.on("request", async (req, res) => {
       res.sendFile = async (filePath) => {
@@ -340,9 +262,7 @@ class NodeRoute {
         res.end(data);
       };
 
-      // Handle route request
       const handleRouteRequest = async () => {
-        // First, check for static routes
         let staticRoute = this.#routes.find(
           (route) => route.staticRoutes.has(req.url) && req.method === "GET"
         );
@@ -374,25 +294,20 @@ class NodeRoute {
 
             await serveStaticFile(filePath, res);
           } else {
-            // Fallback to dynamic routes
             const route = this.#routes.find((route) => {
-              return route.extractParams(
-                route.path,
-                url.parse(req.url).pathname
-              );
+              const parsedUrl = new URL(req.url, `http://${req.headers.host}`);
+              return route.extractParams(route.path, parsedUrl.pathname);
             });
 
             if (route) {
               await route.handleRequest(req, res);
             } else {
-              // Serve the custom 404 page
-              serve404(res);
+              serve404(res, this.options.custom404Path);
             }
           }
         }
       };
 
-      // Execute global middlewares
       const executeGlobalMiddlewares = (index) => {
         if (index >= this.#globalMiddlewares.length) {
           handleRouteRequest();
@@ -407,10 +322,6 @@ class NodeRoute {
     });
   }
 
-  /**
-   * Register a global middleware.
-   * @param {Function} middleware - The middleware function.
-   */
   use(middleware) {
     if (typeof middleware !== "function") {
       throw new Error("Middleware must be a function");
@@ -418,25 +329,15 @@ class NodeRoute {
     this.#globalMiddlewares.push(middleware);
   }
 
-  /**
-   * Create a new route.
-   * @param {string} path - The route path.
-   * @returns {Route} The new route instance.
-   */
-  route(path) {
+  route(path, options = null) {
     if (this.#routes.some((route) => route.path === path)) {
       throw new Error(`Route for path "${path}" is already defined`);
     }
-    const route = new Route(path);
+    const route = new Route(path, options ? options : this.options);
     this.#routes.push(route);
     return route;
   }
 
-  /**
-   * Start the server.
-   * @param {number} port - The port number.
-   * @param {Function} cb - The callback function.
-   */
   listen(port, cb) {
     this.#server.listen(port, cb);
   }

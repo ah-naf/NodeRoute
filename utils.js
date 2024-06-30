@@ -1,9 +1,7 @@
+// utils.js
 const path = require("path");
 const fsStream = require("fs");
 
-/**
- * Mime types for different file extensions.
- */
 const mimeTypes = {
   ".html": "text/html",
   ".js": "application/javascript",
@@ -15,12 +13,8 @@ const mimeTypes = {
   ".txt": "text/plain",
 };
 
-/**
- * Serve a 404 page when a file is not found or there's an error.
- * @param {http.ServerResponse} res - The response object.
- */
-function serve404(res) {
-  const filePath = path.join(__dirname, "public", "404.html");
+function serve404(res, custom404Path = null) {
+  const filePath = custom404Path || path.join(__dirname, "public", "404.html");
   res.statusCode = 404;
   res.setHeader("Content-Type", "text/html");
 
@@ -34,17 +28,12 @@ function serve404(res) {
   readStream.pipe(res);
 }
 
-/**
- * Serve a static file to the response.
- * @param {string} filePath - The path to the file.
- * @param {http.ServerResponse} res - The response object.
- */
 async function serveStaticFile(filePath, res) {
   try {
     const stat = await fsStream.promises.lstat(filePath);
 
     if (stat.isDirectory()) {
-      throw new Error("EISDIR"); // Error if it's a directory
+      throw new Error("EISDIR");
     }
 
     const fileStream = fsStream.createReadStream(filePath);
@@ -62,7 +51,7 @@ async function serveStaticFile(filePath, res) {
   } catch (error) {
     if (error.message === "EISDIR" || error.code === "ENOENT") {
       console.error("Error serving static file:", error);
-      serve404(res); // Serve the 404 page if the file does not exist or is a directory
+      serve404(res);
     } else {
       console.error("Unexpected error serving static file:", error);
       res.writeHead(500, { "Content-Type": "text/plain" });
