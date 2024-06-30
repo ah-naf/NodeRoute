@@ -1,5 +1,5 @@
 {
-  "name": "noderoute",
+  "name": "@ah_naf/noderoute",
   "version": "1.0.0",
   "description": "A lightweight, flexible HTTP server framework for Node.js.",
   "main": "index.js",
