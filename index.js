@@ -1,6 +1,7 @@
 const http = require("http");
 const fs = require("fs").promises;
 const path = require("path");
+const stream = require("stream");
 const { serve404, mimeTypes, serveStaticFile } = require("./utils");
 
 class Route {
@@ -165,11 +166,10 @@ class Route {
             res.end("Multipart form data not supported");
             return;
           } else if (contentType) {
-            res.writeHead(400, { "Content-Type": "text/plain" });
-            res.end("Unsupported content-type");
-            return;
+            const readableStream = new stream.PassThrough();
+            readableStream.end(body);
+            req.file = readableStream;
           }
-
           if (this.options.defaultHeaders) {
             for (const [key, value] of Object.entries(
               this.options.defaultHeaders

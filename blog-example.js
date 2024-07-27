@@ -19,7 +19,7 @@ const POSTS = [
 ];
 
 const PORT = 3000;
-const server = new NodeRoute({enableLoggin: true});
+const server = new NodeRoute({ enableLoggin: true });
 
 const authenticate = (req, res, next) => {
   if (req.headers.cookie) {
@@ -46,6 +46,19 @@ const UserRoute = server.route("/api/user");
 const PostRoute = server.route("/api/posts");
 
 HomeRoute.sendStatic(path.join(__dirname, "public"));
+
+const fs = require("fs");
+
+HomeRoute.post(async (req, res) => {
+  const filePath = path.join(__dirname, "image.png");
+  const writableStream = fs.createWriteStream(filePath);
+
+  req.file.pipe(writableStream);
+
+  await 
+
+  res.status(200).json({ message: "Hi" });
+});
 
 LoginRoute.post((req, res) => {
   const body = req.body;
