@@ -50,7 +50,7 @@ const TimeoutRoute = server.route("/api/timeout");
 HomeRoute.sendStatic(path.join(__dirname, "public"));
 
 HomeRoute.post((req, res) => {
-  const filePath = path.join(__dirname, "image.png");
+  const filePath = path.join(__dirname, "video.mp4");
   const writableStream = fs.createWriteStream(filePath);
 
   req.file.pipe(writableStream);

@@ -1,7 +1,5 @@
-const http = require("http");
-const fs = require("fs").promises;
+const fs = require("fs");
 const path = require("path");
-const stream = require("stream");
 const { serve404, mimeTypes, serveStaticFile } = require("./utils");
 
 class Route {
@@ -65,7 +63,7 @@ class Route {
 
   async addStaticRoutes(rootPath, prefix = "") {
     try {
-      const stat = await fs.lstat(rootPath);
+      const stat = await fs.promises.lstat(rootPath);
       if (stat.isFile()) {
         const urlPath = path
           .join(prefix, path.relative(this.staticDir, rootPath))
@@ -75,7 +73,7 @@ class Route {
           path.join(this.staticDir, urlPath)
         );
       } else if (stat.isDirectory()) {
-        const files = await fs.readdir(rootPath);
+        const files = await fs.promises.readdir(rootPath);
         for (const file of files) {
           await this.addStaticRoutes(path.join(rootPath, file), prefix);
         }
@@ -131,72 +129,132 @@ class Route {
         req.params = this.extractParams(this.path, parsedUrl.pathname);
         req.query = Object.fromEntries(parsedUrl.searchParams.entries());
 
-        let body = Buffer.alloc(0);
-        let bodySize = 0;
+        const contentType = req.headers["content-type"];
 
-        req.on("data", (data) => {
-          bodySize += data.length;
-          if (bodySize > this.options.bodySizeLimit) {
-            res.writeHead(413, { "Content-Type": "text/plain" });
-            res.end("Payload Too Large");
-            req.destroy();
-            return;
-          }
-          body = Buffer.concat([body, data]);
-        });
-
-        req.on("end", () => {
-          const contentType = req.headers["content-type"];
-
-          if (contentType === "application/json") {
-            try {
-              req.body = body ? JSON.parse(body.toString()) : {};
-            } catch (error) {
-              console.error("Error parsing JSON:", error);
-              res.writeHead(400, { "Content-Type": "text/plain" });
-              res.end("Bad Request");
-              return;
-            }
-          } else if (
-            contentType &&
-            contentType.includes("multipart/form-data")
-          ) {
-            // Placeholder for multipart handling or middleware delegation
-            res.writeHead(400, { "Content-Type": "text/plain" });
-            res.end("Multipart form data not supported");
-            return;
-          } else if (contentType) {
-            const readableStream = new stream.PassThrough();
-            readableStream.end(body);
-            req.file = readableStream;
-          }
-          if (this.options.defaultHeaders) {
-            for (const [key, value] of Object.entries(
-              this.options.defaultHeaders
-            )) {
-              res.setHeader(key, value);
-            }
-          }
-
-          const allHandlers = [...this.globalMiddlewares, ...handlers];
-
-          const executeHandlers = (index) => {
-            if (index >= allHandlers.length) return;
-            allHandlers[index](req, res, () => executeHandlers(index + 1));
-          };
-
-          executeHandlers(0);
-        });
-
-        req.on("error", (error) => {
-          console.error(error);
-          res.writeHead(500, { "Content-Type": "text/plain" });
-          res.end("Internal Server Error");
-        });
+        if (contentType === "application/json") {
+          this.handleJsonRequest(req, res, handlers);
+        } else if (contentType && contentType.includes("multipart/form-data")) {
+          // this.handleMultipart(req, res, handlers);
+          throw new Error(
+            "Multipart/form-data is not supported at this moment"
+          );
+        } else {
+          this.handleOtherRequests(req, res, handlers);
+        }
       } else {
         serve404(res, this.options.custom404Path);
       }
     }
+  }
+
+  handleJsonRequest(req, res, handlers) {
+    let body = Buffer.alloc(0);
+    let bodySize = 0;
+
+    req.on("data", (data) => {
+      bodySize += data.length;
+      if (bodySize > this.options.bodySizeLimit) {
+        res.writeHead(413, { "Content-Type": "text/plain" });
+        res.end("Payload Too Large");
+        req.destroy();
+        return;
+      }
+      body = Buffer.concat([body, data]);
+    });
+
+    req.on("end", () => {
+      try {
+        req.body = body ? JSON.parse(body.toString()) : {};
+        this.executeHandlers(req, res, handlers);
+      } catch (error) {
+        console.error("Error parsing JSON:", error);
+        res.writeHead(400, { "Content-Type": "text/plain" });
+        res.end("Bad Request");
+      }
+    });
+
+    req.on("error", (error) => {
+      console.error(error);
+      res.writeHead(500, { "Content-Type": "text/plain" });
+      res.end("Internal Server Error");
+    });
+  }
+
+  // handleMultipart(req, res, handlers) {
+  //   const boundary = req.headers["content-type"].split("boundary=")[1];
+  //   const boundaryBuffer = Buffer.from(`--${boundary}`);
+  //   let fileStream = null;
+  //   let buffer = Buffer.alloc(0);
+
+  //   req.on("data", (data) => {
+  //     buffer = Buffer.concat([buffer, data]);
+
+  //     let boundaryIndex;
+  //     while ((boundaryIndex = buffer.indexOf(boundaryBuffer)) !== -1) {
+  //       const part = buffer.slice(0, boundaryIndex);
+  //       buffer = buffer.slice(boundaryIndex + boundaryBuffer.length);
+
+  //       if (fileStream) {
+  //         fileStream.end(part);
+  //         fileStream = null;
+  //       } else {
+  //         const headers = part.toString().split("\r\n");
+  //         const dispositionHeader = headers.find(header => header.startsWith("Content-Disposition"));
+
+  //         if (dispositionHeader) {
+  //           const match = dispositionHeader.match(/filename="([^"]+)"/);
+  //           if (match) {
+  //             const filename = match[1];
+  //             const filePath = path.join("./uploads", filename);
+  //             fileStream = fs.createWriteStream(filePath);
+  //             fileStream.write(part.slice(part.indexOf("\r\n\r\n") + 4));
+  //             req.file = {
+  //               filename,
+  //               path: filePath,
+  //             };
+  //           }
+  //         }
+  //       }
+  //     }
+  //   });
+
+  //   req.on("end", () => {
+  //     if (fileStream) {
+  //       fileStream.end(buffer);
+  //     }
+  //     this.executeHandlers(req, res, handlers);
+  //   });
+
+  //   req.on("error", (error) => {
+  //     console.error(error);
+  //     res.writeHead(500, { "Content-Type": "text/plain" });
+  //     res.end("Internal Server Error");
+  //   });
+  // }
+
+  handleOtherRequests(req, res, handlers) {
+    const contentType = req.headers["content-type"];
+    if (contentType) {
+      req.file = req;
+    }
+    this.executeHandlers(req, res, handlers);
+  }
+
+  executeHandlers(req, res, handlers) {
+    if (this.options.defaultHeaders) {
+      for (const [key, value] of Object.entries(this.options.defaultHeaders)) {
+        res.setHeader(key, value);
+      }
+    }
+
+    const allHandlers = [...this.globalMiddlewares, ...handlers];
+
+    const execute = (index) => {
+      if (index >= allHandlers.length) return;
+      allHandlers[index](req, res, () => execute(index + 1));
+    };
+
+    execute(0);
   }
 
   sendStatic(staticDir, options = {}) {
