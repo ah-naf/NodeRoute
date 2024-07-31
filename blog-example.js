@@ -1,5 +1,6 @@
 const NodeRoute = require("./index");
 const path = require("path");
+const fs = require("fs");
 
 const SESSIONS = [];
 
@@ -13,13 +14,13 @@ const POSTS = [
   {
     id: 1,
     title: "This is a post title",
-    body: "Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book. It has survived not only five centuries, but also the leap into electronic typesetting, remaining essentially unchanged. It was popularised in the 1960s with the release of Letraset sheets containing Lorem Ipsum passages, and more recently with desktop publishing software like Aldus PageMaker including versions of Lorem Ipsum.",
+    body: "Lorem Ipsum is simply dummy text of the printing and typesetting industry...",
     userId: 1,
   },
 ];
 
 const PORT = 3000;
-const server = new NodeRoute({ enableLoggin: true });
+const server = new NodeRoute({ enableLogging: true, timeout: 5000 }); // Set timeout to 2000ms
 
 const authenticate = (req, res, next) => {
   if (req.headers.cookie) {
@@ -44,20 +45,24 @@ const LoginRoute = server.route("/api/login");
 const LogoutRoute = server.route("/api/logout");
 const UserRoute = server.route("/api/user");
 const PostRoute = server.route("/api/posts");
+const TimeoutRoute = server.route("/api/timeout");
 
 HomeRoute.sendStatic(path.join(__dirname, "public"));
 
-const fs = require("fs");
-
-HomeRoute.post(async (req, res) => {
+HomeRoute.post((req, res) => {
   const filePath = path.join(__dirname, "image.png");
   const writableStream = fs.createWriteStream(filePath);
 
   req.file.pipe(writableStream);
 
-  await 
+  writableStream.on("finish", () => {
+    res.status(200).json({ message: "File uploaded successfully" });
+  });
 
-  res.status(200).json({ message: "Hi" });
+  writableStream.on("error", (error) => {
+    console.error("Error writing file:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  });
 });
 
 LoginRoute.post((req, res) => {
@@ -80,7 +85,6 @@ LoginRoute.post((req, res) => {
 });
 
 LogoutRoute.delete(authenticate, (req, res) => {
-  // Remove the session object form the SESSIONS array
   const sessionIndex = SESSIONS.findIndex(
     (session) => session.userId === req.userId
   );
@@ -130,6 +134,14 @@ PostRoute.get((req, res) => {
 
   POSTS.unshift(post);
   res.status(201).json(post);
+});
+
+TimeoutRoute.get((req, res) => {
+  // Simulate a long-running operation
+  return res.status(400).json({ error: "error" });
+  setTimeout(() => {
+    res.status(200).json({ message: "This request took a long time" });
+  }, 5001); // This will exceed the server timeout
 });
 
 server.listen(PORT, () => {

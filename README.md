@@ -14,16 +14,20 @@ The NodeRoute package is a lightweight, flexible HTTP server framework for Node.
 6. **Configurable Options:** Customize server behavior with options like logging, default headers, body size limits, and custom 404 pages.
 7. **Route-Specific Options:** Override global options for specific routes.
 8. **Middleware Chaining:** Add middlewares before specific HTTP method handlers.
+9. **File Upload Handling:** Support for single binary file uploads through `req.file`.
+10. **Request Timeout:** Configurable timeout for requests to prevent long-running operations.
 
 ## How It Works
 
 ### Core Classes
 
 #### 1. `NodeRoute`
+
 - Manages the HTTP server, global middlewares, and routes.
 - Listens for incoming requests and delegates them to the appropriate route handlers.
 
 #### 2. `Route`
+
 - Defines and manages individual routes and their handlers.
 - Supports middleware chaining and static file route setup.
 
@@ -32,16 +36,19 @@ The NodeRoute package is a lightweight, flexible HTTP server framework for Node.
 #### `NodeRoute`
 
 - **Constructor:** Initializes the server with optional configurations.
+
   ```javascript
   const server = new NodeRoute({
     custom404Path: path.join(__dirname, "public", "custom_404.html"),
     defaultHeaders: { "X-Powered-By": "NodeRoute" },
     enableLogging: true,
     bodySizeLimit: 1024, // 1 KB
+    timeout: 2000, // 2 seconds
   });
   ```
 
 - **use(middleware):** Adds a global middleware.
+
   ```javascript
   server.use((req, res, next) => {
     console.log(`${req.method} ${req.url}`);
@@ -50,6 +57,7 @@ The NodeRoute package is a lightweight, flexible HTTP server framework for Node.
   ```
 
 - **route(path, options):** Defines a new route with optional configurations.
+
   ```javascript
   const publicRoute = server.route("/public", { bodySizeLimit: 2048 });
   ```
@@ -64,6 +72,7 @@ The NodeRoute package is a lightweight, flexible HTTP server framework for Node.
 #### `Route`
 
 - **get(...handlers):** Defines a GET handler for the route.
+
   ```javascript
   publicRoute.get((req, res) => {
     res.status(200).json({ message: "Successfully accessed public route" });
@@ -71,10 +80,13 @@ The NodeRoute package is a lightweight, flexible HTTP server framework for Node.
   ```
 
 - **post(...handlers):** Defines a POST handler for the route.
+
   ```javascript
   publicRoute.post((req, res) => {
     const body = req.body;
-    res.status(201).json({ message: "Successfully received POST data", data: body });
+    res
+      .status(201)
+      .json({ message: "Successfully received POST data", data: body });
   });
   ```
 
@@ -82,6 +94,7 @@ The NodeRoute package is a lightweight, flexible HTTP server framework for Node.
 - **delete(...handlers):** Defines a DELETE handler for the route.
 
 - **use(...middlewares):** Adds middlewares specific to the route.
+
   ```javascript
   publicRoute.use((req, res, next) => {
     console.log(`Middleware for ${req.method} ${req.url}`);
@@ -97,6 +110,7 @@ The NodeRoute package is a lightweight, flexible HTTP server framework for Node.
 ### Middleware Levels
 
 1. **Global Middleware:** Applied to all routes.
+
    ```javascript
    server.use((req, res, next) => {
      console.log(`Global middleware: ${req.method} ${req.url}`);
@@ -105,6 +119,7 @@ The NodeRoute package is a lightweight, flexible HTTP server framework for Node.
    ```
 
 2. **Route-Based Global Middleware:** Applied to all handlers within a specific route.
+
    ```javascript
    const publicRoute = server.route("/public");
    publicRoute.use((req, res, next) => {
@@ -174,6 +189,7 @@ const server = new NodeRoute({
   defaultHeaders: { "X-Powered-By": "NodeRoute" },
   enableLogging: true,
   bodySizeLimit: 1024, // 1 KB
+  timeout: 2000, // 2 seconds
 });
 
 // Global middleware
@@ -203,7 +219,9 @@ publicRoute.get(
 
 publicRoute.post((req, res) => {
   const body = req.body;
-  res.status(201).json({ message: "Successfully received POST data", data: body });
+  res
+    .status(201)
+    .json({ message: "Successfully received POST data", data: body });
 });
 
 // Serve static files from the 'public' directory
@@ -221,15 +239,15 @@ Create a simple HTML file in the `public` directory:
 ```html
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>NodeRoute Example</title>
-</head>
-<body>
-  <h1>Welcome to NodeRoute</h1>
-  <p>This is a static file served by NodeRoute.</p>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NodeRoute Example</title>
+  </head>
+  <body>
+    <h1>Welcome to NodeRoute</h1>
+    <p>This is a static file served by NodeRoute.</p>
+  </body>
 </html>
 ```
 
@@ -240,15 +258,15 @@ Create a custom 404 error page:
 ```html
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>404 Not Found</title>
-</head>
-<body>
-  <h1>404 - Page Not Found</h1>
-  <p>Sorry, the page you are looking for does not exist.</p>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>404 Not Found</title>
+  </head>
+  <body>
+    <h1>404 - Page Not Found</h1>
+    <p>Sorry, the page you are looking for does not exist.</p>
+  </body>
 </html>
 ```
 
@@ -276,12 +294,68 @@ To test the route-based middleware and handlers, navigate to `http://localhost:3
 
 - **custom404Path:** Path to a custom 404 page.
 - **defaultHeaders:** Headers to be added to all responses.
-- **enableLogging:** Boolean to enable/disable logging.
+- **enableLogging:** Boolean to enable/disable logging. Logs method, URL, status code, and time taken for the request.
 - **bodySizeLimit:** Maximum allowed body size for incoming requests.
+- **timeout:** Maximum time allowed for a request before it is terminated.
 - **Route-Specific Options:** Override global options for specific routes (e.g., `bodySizeLimit`).
 
-### Drawbacks
+### File Upload Handling
 
-- **Limited Features:** Compared to mature frameworks like Express.js, NodeRoute offers fewer built-in features.
-- **Manual Middleware Management:** Middleware chaining is manual and requires careful order management.
-- **No Built-in Body Parsing:** Requires custom handling for different content types.
+NodeRoute supports handling single binary file uploads through the `req.file` stream. This allows for efficient handling of file
+
+uploads without loading the entire file into memory.
+
+Example of handling a file upload:
+
+```javascript
+const fs = require("fs");
+const uploadRoute = server.route("/upload");
+
+uploadRoute.post((req, res) => {
+  const filePath = path.join(__dirname, "uploaded_file.png");
+  const writableStream = fs.createWriteStream(filePath);
+
+  req.file.pipe(writableStream);
+
+  writableStream.on("finish", () => {
+    res.status(200).json({ message: "File uploaded successfully" });
+  });
+
+  writableStream.on("error", (error) => {
+    console.error("Error writing file:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  });
+});
+```
+
+In this example, the uploaded file is streamed to the server and saved as `uploaded_file.png` in the current directory. This method ensures that the server can handle large file uploads efficiently without exhausting memory.
+
+### Example with Timeout Route
+
+Here’s an example that demonstrates how to use the timeout option:
+
+```javascript
+const path = require("path");
+const NodeRoute = require("@ah_naf/noderoute");
+
+const server = new NodeRoute({
+  custom404Path: path.join(__dirname, "public", "custom_404.html"),
+  defaultHeaders: { "X-Powered-By": "NodeRoute" },
+  enableLogging: true,
+  bodySizeLimit: 1024, // 1 KB
+  timeout: 2000, // 2 seconds
+});
+
+const timeoutRoute = server.route("/api/timeout");
+
+timeoutRoute.get((req, res) => {
+  // Simulate a long-running operation
+  setTimeout(() => {
+    res.status(200).json({ message: "This request took a long time" });
+  }, 3000); // This will exceed the server timeout
+});
+
+server.listen(3000, () => {
+  console.log("Server is listening on port 3000");
+});
+```
